@@ -79,4 +79,8 @@ perf_df = load_performance_data()
 # ================================
 @app.get("/performance")
 def get_performance():
-    return {"data": perf_df.to_dict(orient="records")}
+    df = pd.read_csv("performance.csv")
+
+    df = df.sort_values("date")
+
+    return {"data": df.to_dict(orient="records")}
