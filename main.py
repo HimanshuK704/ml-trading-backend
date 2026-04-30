@@ -32,12 +32,52 @@ def home():
 # ================================
 # PREDICTION API
 # ================================
-@app.post("/predict")
-def predict(data: dict):
-    df = pd.DataFrame([data])
-    df_scaled = scaler.transform(df)
-    prob = model.predict_proba(df_scaled)[0][1]
-    return {"probability": float(prob)}
+import yfinance as yf
+
+@app.get("/predict/{symbol}")
+def predict(symbol: str):
+    try:
+        df = yf.download(symbol, period="60d", interval="1d", progress=False)
+
+        # DEBUG PRINT (important)
+        print("Downloaded rows:", len(df))
+
+        if df is None or df.empty or len(df) < 30:
+            return {"error": f"No data found for symbol: {symbol}"}
+
+        df["Return_5"] = df["Close"].pct_change(5)
+        df["Return_20"] = df["Close"].pct_change(20)
+
+        df["MA_10"] = df["Close"].rolling(10).mean()
+        df["MA_20"] = df["Close"].rolling(20).mean()
+        df["MA_ratio"] = df["MA_10"] / df["MA_20"]
+
+        df["Volatility"] = df["Close"].pct_change().rolling(10).std()
+        df["Volume_Spike"] = df["Volume"] / df["Volume"].rolling(10).mean()
+
+        df = df.dropna()
+
+        latest = df.iloc[-1]
+
+        features = [[
+            latest["Return_5"],
+            latest["Return_20"],
+            latest["MA_ratio"],
+            latest["Volatility"],
+            latest["Volume_Spike"]
+        ]]
+
+        scaled = scaler.transform(features)
+        prob = model.predict_proba(scaled)[0][1]
+
+        return {
+            "symbol": symbol,
+            "probability": float(prob),
+            "signal": "BUY" if prob > 0.45 else "SELL"
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # ================================
 # LOAD & CLEAN PERFORMANCE DATA
