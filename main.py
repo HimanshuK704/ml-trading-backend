@@ -2,6 +2,7 @@ from fastapi import FastAPI
 import joblib
 import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
+import yfinance as yf
 
 app = FastAPI()
 
@@ -30,21 +31,17 @@ def home():
     return {"message": "API is working"}
 
 # ================================
-# PREDICTION API
+# PREDICTION API (IMPROVED)
 # ================================
-import yfinance as yf
-
 @app.get("/predict/{symbol}")
 def predict(symbol: str):
     try:
         df = yf.download(symbol, period="60d", interval="1d", progress=False)
 
-        # DEBUG PRINT (important)
-        print("Downloaded rows:", len(df))
-
         if df is None or df.empty or len(df) < 30:
             return {"error": f"No data found for symbol: {symbol}"}
 
+        # Feature engineering
         df["Return_5"] = df["Close"].pct_change(5)
         df["Return_20"] = df["Close"].pct_change(20)
 
@@ -67,13 +64,30 @@ def predict(symbol: str):
             latest["Volume_Spike"]
         ]]
 
+        # Model prediction
         scaled = scaler.transform(features)
-        prob = model.predict_proba(scaled)[0][1]
+        raw_prob = model.predict_proba(scaled)[0][1]
+
+        # 🔥 FIX: Amplify probability spread
+        prob = float(raw_prob)
+        prob = (prob - 0.45) * 3
+        prob = max(0, min(1, prob))  # clamp 0–1
+
+        # 🔥 Improved signal logic
+        if prob > 0.6:
+            signal = "STRONG BUY"
+        elif prob > 0.5:
+            signal = "BUY"
+        elif prob > 0.4:
+            signal = "HOLD"
+        else:
+            signal = "SELL"
 
         return {
             "symbol": symbol,
-            "probability": float(prob),
-            "signal": "BUY" if prob > 0.45 else "SELL"
+            "probability": round(prob, 3),
+            "raw_probability": round(float(raw_prob), 3),
+            "signal": signal
         }
 
     except Exception as e:
@@ -85,33 +99,24 @@ def predict(symbol: str):
 def load_performance_data():
     df = pd.read_csv("performance.csv")
 
-    # Ensure correct column names
     df.columns = [col.lower() for col in df.columns]
 
-    # Rename if needed
     if "date" not in df.columns:
         if "Date" in df.columns:
             df = df.rename(columns={"Date": "date"})
 
-    # Convert to datetime
     df["date"] = pd.to_datetime(df["date"])
-
-    # Sort properly
     df = df.sort_values("date")
 
-    # Handle missing values
     df["strategy"] = df["strategy"].ffill()
     df["nifty"] = df["nifty"].ffill()
 
-    # Drop any remaining NaN
     df = df.dropna(subset=["strategy", "nifty"])
 
-    # Convert date to string for JSON
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
 
     return df
 
-# Load once at startup
 perf_df = load_performance_data()
 
 # ================================
@@ -120,7 +125,5 @@ perf_df = load_performance_data()
 @app.get("/performance")
 def get_performance():
     df = pd.read_csv("performance.csv")
-
     df = df.sort_values("date")
-
     return {"data": df.to_dict(orient="records")}
