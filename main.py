@@ -41,8 +41,7 @@ def predict(data: dict):
         raw_prob = model.predict_proba(df_scaled)[0][1]
 
         # 🔥 Improved probability scaling
-        prob = (raw_prob - 0.45) * 3
-        prob = max(0, min(1, prob))
+        prob = float(raw_prob)
 
         # 🔥 Signal logic
         if prob > 0.6:
