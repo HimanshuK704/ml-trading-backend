@@ -2,7 +2,6 @@ from fastapi import FastAPI
 import joblib
 import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
-import yfinance as yf
 
 app = FastAPI()
 
